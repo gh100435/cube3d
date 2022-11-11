@@ -191,21 +191,43 @@ const m3dCube = new Model3D(
 
 /* (mvc) model */
 // TODO 일단 야매로 코드
-let cubes3d = [
-    new Object3D(
-        m3dCube,
-        new Vector4(0, 0, 0, 0),
-        new Vector4(0, 0, 0, 0),
-        new Vector4(10, 10, 10, 10) 
-    )
-];
+let cubes3d = [];
+
+function setCubes3D() {
+    cubes3d = [];
+
+    let rows = 10;
+    let columns = 10;
+    let cubeSize = 20;
+    let offset = 60;
+
+    let startRow = -rows * offset / 2;
+    let startColumn = -columns * offset / 2;
+
+    let i, j, k;
+    for(i = 0; i < rows; i++) {
+        for(j = 0; j < columns; j++) {
+            cubes3d.push(
+                new Object3D(
+                    m3dCube,
+                    new Vector4(startColumn + i * offset, startRow + j * offset, 0, 0),
+                    new Vector4(0, 0, 0, 0),
+                    new Vector4(cubeSize, cubeSize, cubeSize, 0)
+                )
+            );
+        }
+    }
+}
+
+setCubes3D();
+
 
 /* (mvc) controller */
 function RotateXCubes(rad) {
     let i, cube3d;
     for(i = 0; i < cubes3d.length; i++) {
         cube3d = cubes3d[i];
-        cube3d.vRot.x += rad;
+        cube3d.vRot.x += rad * i;
     }
 }
 
@@ -213,7 +235,7 @@ function RotateZCubes(rad) {
     let i, cube3d;
     for(i = 0; i < cubes3d.length; i++) {
         cube3d = cubes3d[i];
-        cube3d.vRot.z += rad;
+        cube3d.vRot.z += rad * i;
     }
 }
 
