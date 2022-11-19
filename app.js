@@ -3,6 +3,7 @@ const canvas = document.createElement('canvas');
 document.body.append(canvas);
 const ctx = canvas.getContext('2d');
 
+/* resize */
 let screenWidth, screenHeight;
 function resize() {
     screenWidth = document.body.clientWidth;
@@ -13,22 +14,58 @@ function resize() {
 }
 
 resize();
-window.addEventListener('resize', resize);
+window.addEventListener('resize', resize, false);
 
 /* utils */
-function copyArr(arr) {
-    let tmparr = [];
-    let i;
-    for(i = 0; i < arr.length; i++) {
-        tmparr[i] = Object.assign({}, arr[i]);
-    }
-    return tmparr;
+function floor(f, p) {
+    return Math.floor(f * (10 ** p)) / 10 ** p;
 }
 
-/* constants */
-const COLORS = {
-    BG: '#ffffff',
-    CUBE: '#ff0000'
+function rgba2css(r, g, b, a) {
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function loadFile(url, cb) {
+    fetch(url).then(cb).catch(console.error);    
+}
+
+/* canvas context utilities */
+function drawClear(ctx, x, y, w, h) {
+    ctx.clearRect(x, y, w, h);
+}
+
+function drawLine(ctx, x0, y0, x1, y1, weight, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = weight;
+
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.closePath();
+}
+
+function drawTriangle(ctx, x0, y0, x1, y1, x2, y2, color) {
+    ctx.fillStyle = color;
+    ctx.lineWidth = 0;
+
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x0, y0);
+    ctx.fill();
+    ctx.closePath();
+}
+
+function drawText(ctx, text, x, y, fontSize, color) {
+    ctx.fillStyle = color;
+    ctx.font = `${fontSize}px sans-serif`;
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.fillText(text, x, y);
+    ctx.closePath();
 }
 
 /* data-structure */
@@ -39,292 +76,378 @@ class Vector4 {
         this.z = z;
         this.w = w;
     }
+
+    copy(v) {
+        return new Vector4(
+            this.x,
+            this.y,
+            this.z,
+            this.w
+        );
+    }
+
+    addv(v) {
+        return new Vector4(
+            this.x + v.x,
+            this.y + v.y,
+            this.z + v.z,
+            this.w + v.w
+        );
+    }
+
+    subv(v) {
+        return new Vector4(
+            this.x - v.x,
+            this.y - v.y,
+            this.z - v.z,
+            this.w - v.w
+        );
+    }
+
+    mul(s) {
+        return new Vector4(
+            this.x * s,
+            this.y * s,
+            this.z * s,
+            this.w * s
+        );
+    }
+
+    div(s) {
+        return new Vector4(
+            this.x / s,
+            this.y / s,
+            this.z / s,
+            this.w / s
+        );
+    }
+
+    dot(v) {
+        return (
+            this.x * v.x +
+            this.y * v.y +
+            this.z * v.z +
+            this.w * v.w
+        );
+    }
+
+    cross3d(v) {
+        return new Vector4(
+            this.y * v.z - this.z * v.y,
+            this.z * v.x - this.x * v.z,
+            this.x * v.y - this.y * v.x,
+            0
+        );
+    }
+
+    size() {
+        return Math.sqrt(
+            this.x ** 2 +
+            this.y ** 2 +
+            this.z ** 2 +
+            this.w ** 2
+        );
+    }
+
+    normalize() {
+        var size = this.size();
+        return this.div(size);
+    }
 }
 
 class Model3D {
-    constructor(vertices, edges, faces) {
+    constructor(vertices, faces, colors) {
         this.vertices = vertices;
-        this.edges = edges;
         this.faces = faces;
+        this.colors = colors;
     }
+}
+
+function parse3DFromObj(raw) {
+    let vertices = [];
+    let faces = [];
+    let colors = [];
+    
+    let lines = raw.split('\n');
+    let i, line;
+    for(i = 0; i < lines.length; i++) {
+        line = lines[i];
+        if(line.startsWith("v")) {
+            let chunks = line.trim().split(/\s+/);   
+
+            let x = Number(chunks[1]);
+            let y = Number(chunks[2]);
+            let z = Number(chunks[3]);
+            let v = new Vector4(x, y, z, 0);
+
+            vertices.push(v);
+        }else if(line.startsWith("f")) {
+            let chunks = line.trim().split(/\s+/);
+
+            let iv0 = Number(chunks[1].split("/")[0]);
+            let iv1 = Number(chunks[2].split("/")[0]);
+            let iv2 = Number(chunks[3].split("/")[0]);
+            let iv3 = Number(chunks[4].split("/")[0]);
+
+            faces.push([iv0, iv1, iv2]);
+        }
+    }
+
+    return new Model3D(vertices, faces, colors);
+}
+
+function loadM3DFromObjURL(url, cb) {
+    fetch(url)
+    .then((res) => {
+        res.text()
+        .then((raw) => {
+            var m3d = parse3DFromObj(raw);
+            cb(m3d);
+        })
+        .catch(console.error);
+    })
+    .catch(console.error);
 }
 
 class Object3D {
-    constructor(m3d, vPos, vRot, vScale) {
+    constructor(m3d, vPosition, vRotation, vScale) {
         this.m3d = m3d;
-        this.vPos = vPos;
-        this.vRot = vRot;
+        this.vPos = vPosition;
+        this.vRot = vRotation;
         this.vScale = vScale;
-    }
-
-    computeRenders() {
-        let vertices = this.m3d.vertices;
-        vertices = this.computePosition(vertices);
-        vertices = this.computeRotation(vertices);
-        vertices = this.computeScale(vertices);
-
-        return vertices;
-    }
-
-    computePosition(_vertices) {
-        let vertices = copyArr(_vertices);
-        let vPos = this.vPos;
-
-        let i, v4;
-        for(i = 0; i < vertices.length; i++) {
-            v4 = vertices[i];
-            v4.x += vPos.x;
-            v4.y += vPos.y;
-            v4.z += vPos.z;
-
-            vertices[i] = v4;
-        }
-
-        return vertices;
-    }
-
-    computeRotation(_vertices) {
-        let vertices = copyArr(_vertices);
-        let vRot = this.vRot;
-        let vPos = this.vPos;
-
-        let i, v4, dx, dy, dz;
-        // rotate x
-        for(i = 0; i < vertices.length; i++) {
-            v4 = vertices[i];
- 
-            dy = v4.y - vPos.y;
-            dz = v4.z - vPos.z;
-
-            v4.y = dy * Math.cos(vRot.x) - dz * Math.sin(vRot.x);
-            v4.z = dy * Math.sin(vRot.x) + dz * Math.cos(vRot.x);
-
-            v4.y += vPos.y;
-            v4.z += vPos.z;
-
-            vertices[i] = v4;
-        }
-        // rotate y
-        for(i = 0; i < vertices.length; i++) {
-            v4 = vertices[i];
- 
-            dz = v4.z - vPos.z;
-            dx = v4.x - vPos.x;
-
-            v4.z = dz * Math.cos(vRot.y) - dx * Math.sin(vRot.y);
-            v4.x = dz * Math.sin(vRot.y) + dx * Math.cos(vRot.y);
-
-            v4.z += vPos.z;
-            v4.x += vPos.x;
-
-            vertices[i] = v4;
-        }
-        // rotate z
-        for(i = 0; i < vertices.length; i++) {
-            v4 = vertices[i];
- 
-            dx = v4.x - vPos.x;
-            dy = v4.y - vPos.y;
-
-            v4.x = dx * Math.cos(vRot.z) - dy * Math.sin(vRot.z);
-            v4.y = dx * Math.sin(vRot.z) + dy * Math.cos(vRot.z);
-
-            v4.x += vPos.x;
-            v4.y += vPos.y;
-
-            vertices[i] = v4;
-        }
-
-        return vertices;
-    }
-
-    computeScale(_vertices) {
-        let vertices = copyArr(_vertices);
-        let vScale = this.vScale;
-        let vPos = this.vPos;
-
-        let i, v4, dx, dy, dz;
-        for(i = 0; i < vertices.length; i++) {
-            v4 = vertices[i];
-
-            dx = v4.x - vPos.x;
-            dy = v4.y - vPos.y;
-            dz = v4.z - vPos.z;
-
-            dx = dx * vScale.x;
-            dy = dy * vScale.y;
-            dz = dz * vScale.z;
-
-            v4.x = dx + vPos.x;
-            v4.y = dy + vPos.y;
-            v4.z = dz + vPos.z;
-
-            vertices[i] = v4;
-        }
-
-        return vertices;
     }
 }
 
-/* 3D modelings */
+/* 3d-models */
 const m3dCube = new Model3D(
     [
-        new Vector4(1, 1, 1),
-        new Vector4(1, -1, 1),
-        new Vector4(-1, -1, 1),
-        new Vector4(-1, 1, 1),
-        new Vector4(1, 1, -1),
-        new Vector4(1, -1, -1),
-        new Vector4(-1, -1, -1),
-        new Vector4(-1, 1, -1)
+        new Vector4(1, 1, 1, 0),
+        new Vector4(1, -1, 1, 0),
+        new Vector4(-1, -1, 1, 0),
+        new Vector4(-1, 1, 1, 0),
+        new Vector4(1, 1, -1, 0),
+        new Vector4(1, -1, -1, 0),
+        new Vector4(-1, -1, -1, 0),
+        new Vector4(-1, 1, -1, 0),
     ],
     [
-        [0, 1], [1, 2], [2, 3], [3, 0],
-        [4, 5], [5, 6], [6, 7], [7, 4],
-        [0, 4], [1, 5], [2, 6], [3, 7],
-        [0, 5], [1, 6], [2, 7], [3, 4], [0, 2], [4, 6]
+        /*
+            0, 1, 2, 3
+            4, 5, 6, 7
+        */
+        [0, 1, 2], [0, 2, 3], // top
+        [4, 6, 5], [4, 7, 6], // bottom
+        [0, 4, 5], [0, 5, 1], // sides
+        [1, 5, 6], [1, 6, 2],
+        [2, 6, 7], [2, 7, 3],
+        [3, 7, 4], [3, 4, 0]
     ],
     [
-        // TODO
+        /* colors of each faces rgba(1, 1, 1, 1)*/
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
+        new Vector4(0, 1, 1, 1),
     ]
 );
 
-/* (mvc) model */
-// TODO 일단 야매로 코드
-let cubes3d = [];
+/* rendering pipe line - return vertices */
+function pipeline(vertices, vResolution, vPosition, vRotation, vScale) {
+    var vertices = Object.assign([], vertices);
 
-function setCubes3D() {
-    cubes3d = [];
+    let i;
+    for(i = 0; i < vertices.length; i++) {
+        vertices[i] = vertexShader(vertices[i], vResolution, vPosition, vRotation, vScale);
+    }
 
-    let rows = 10;
-    let columns = 10;
-    let cubeSize = 20;
-    let offset = 60;
+    return vertices;
+}
 
-    let startRow = -rows * offset / 2;
-    let startColumn = -columns * offset / 2;
+function vertexShader(vertex, vResolution, vPosition, vRotation, vScale) {
+    let v = vertex.copy();
 
-    let i, j, k;
-    for(i = 0; i < rows; i++) {
-        for(j = 0; j < columns; j++) {
-            cubes3d.push(
-                new Object3D(
-                    m3dCube,
-                    new Vector4(startColumn + i * offset, startRow + j * offset, 0, 0),
-                    new Vector4(0, 0, 0, 0),
-                    new Vector4(cubeSize, cubeSize, cubeSize, 0)
-                )
+    let rx = vRotation.x;
+    let ry = vRotation.y;
+    let rz = vRotation.z;
+
+    let sx = vScale.x;
+    let sy = vScale.y;
+    let sz = vScale.z;
+    
+    let vd;
+
+    /* Rotate X */
+    vd = v.subv(vPosition);
+    vd.y = v.y * Math.cos(rx) - v.z * Math.sin(rx);
+    vd.z = v.y * Math.sin(rx) + v.z * Math.cos(rx);
+    v = vd.addv(vPosition);
+
+    /* Rotate Y */
+    vd = v.subv(vPosition);
+    vd.z = v.z * Math.cos(ry) - v.x * Math.sin(ry);
+    vd.x = v.z * Math.sin(ry) + v.x * Math.cos(ry);
+    v = vd.addv(vPosition);
+
+    /* Rotate Z */
+    vd = v.subv(vPosition);
+    vd.x = v.x * Math.cos(rz) - v.y * Math.sin(rz);
+    vd.y = v.x * Math.sin(rz) + v.y * Math.cos(rz);
+    v = vd.addv(vPosition);
+
+    /* Scale X, Y, Z */
+    vd = v.subv(vPosition);
+    vd.x *= sx;
+    vd.y *= sy;
+    vd.z *= sz;
+    v = vd.addv(vPosition);
+
+    v = v.addv(vPosition);
+    v = v.addv(vResolution);
+
+    return v;
+}
+
+/* vNormal utils */
+function computeNormal(v0, v1, v2) {
+    let v01 = v1.subv(v0);
+    let v12 = v2.subv(v1);
+
+    let vCross = v01.cross3d(v12);
+    let vNormal = vCross.normalize();
+
+    return vNormal;
+}
+
+/* model(mvc) */
+var cube = new Object3D(
+    m3dCube,
+    new Vector4(0, 0, 0, 0),
+    new Vector4(0, 0, 0, 0),
+    new Vector4(100, 100, 100, 0)
+);
+
+/*
+loadM3DFromObjURL('./dog.obj', (m3d) => {
+    cube = new Object3D(
+        m3d,
+        new Vector4(0, 0, 0, 0),
+        new Vector4(0, 0, 0, 0),
+        new Vector4(10, 10, 10, 0)
+    );
+
+    console.log(cube);
+});
+*/
+
+/* rendering loops */
+let vResolution = new Vector4(screenWidth / 2, screenHeight / 2, 0, 0);
+
+function render() {
+    let vertices = pipeline(cube.m3d.vertices, vResolution, cube.vPos, cube.vRot, cube.vScale);
+    drawClear(ctx, 0, 0, screenWidth, screenHeight);
+    
+    let i, v0, v1, v2, vNormal, face;
+    for(i = 0; i < cube.m3d.faces.length; i++) {
+        face = cube.m3d.faces[i];
+
+        v0 = vertices[face[0]];
+        v1 = vertices[face[1]];
+        v2 = vertices[face[2]];
+
+        vNormal = computeNormal(v0, v1, v2);
+
+        if(vNormal.z > 0) {
+            var color = rgba2css(
+                0,
+                vNormal.z * 255 + 10,
+                vNormal.z * 255 + 10,
+                1
+            );
+
+            drawTriangle(
+                ctx,
+                v0.x, v0.y,
+                v1.x, v1.y,
+                v2.x, v2.y,
+                color
             );
         }
     }
-}
 
-setCubes3D();
+    for(i = 0; i < vertices.length; i++) {
+        v0 = vertices[i];
 
+        var x = floor(v0.x, 1);
+        var y = floor(v0.y, 1);
+        var z = floor(v0.z, 1);
 
-/* (mvc) controller */
-function RotateXCubes(rad) {
-    let i, cube3d;
-    for(i = 0; i < cubes3d.length; i++) {
-        cube3d = cubes3d[i];
-        cube3d.vRot.x += rad * i;
+        var text = `v[${i}](${x}, ${y}, ${z})`;
+        var fontSize = 10;
+        var color = '#FFFFFF';
+
+        drawText(ctx, text, v0.x, v0.y, 10, color);
     }
 }
 
-function RotateZCubes(rad) {
-    let i, cube3d;
-    for(i = 0; i < cubes3d.length; i++) {
-        cube3d = cubes3d[i];
-        cube3d.vRot.z += rad * i;
-    }
+function animate() {
+    requestAnimationFrame(animate);
+    render();
 }
 
-function ScaleCubes(s) {
-    let i, cube3d;
-    for(i = 0; i < cubes3d.length; i++) {
-        cube3d = cubes3d[i];
-        cube3d.vScale.x += s;
-        cube3d.vScale.y += s;
-        cube3d.vScale.z += s;
-    }
-}
+animate();
 
-/* (mvc) controller input */
-const KEY_CODE = {
+/* keyboard-events */
+const KEY_CODES = {
     UP: 'ArrowUp',
     DOWN: 'ArrowDown',
     LEFT: 'ArrowLeft',
     RIGHT: 'ArrowRight',
-    SPACE: 'Space'
-}
+    SPACE: 'Space',
+    A: 'KeyA',
+    S: 'KeyS',
+    W: 'KeyW',
+    D: 'KeyD'
+};
 
 function onKeyDown(e) {
     switch(e.code) {
-        case KEY_CODE.UP:
-            RotateXCubes(0.1);
+        case KEY_CODES.UP:
+            cube.vRot.x -= 0.1;
             break;
-        case KEY_CODE.DOWN:
-            RotateXCubes(-0.1);
+        case KEY_CODES.DOWN:
+            cube.vRot.x += 0.1;
             break;
-        case KEY_CODE.LEFT:
-            RotateZCubes(0.1);
+        case KEY_CODES.LEFT:
+            cube.vRot.y += 0.1;
             break;
-        case KEY_CODE.RIGHT:
-            RotateZCubes(-0.1);
+        case KEY_CODES.RIGHT:
+            cube.vRot.y -= 0.1;
             break;
-        case KEY_CODE.SPACE:
-            ScaleCubes(1);
+        case KEY_CODES.SPACE:
+            break;
+        case KEY_CODES.A:
+            cube.vPos.x -= 0.1;
+            break;
+        case KEY_CODES.S:
+            cube.vPos.y += 0.1;
+            break;
+        case KEY_CODES.W:
+            cube.vPos.y -= 0.1;
+            break;
+        case KEY_CODES.D:
+            cube.vPos.x += 0.1;
             break;
         default:
             break;
     }
 }
+
 window.addEventListener('keydown', onKeyDown, false);
-
-/* (mvc) view */
-function animate() {
-    requestAnimationFrame(animate);
-    ctx.clearRect(0, 0, screenWidth, screenHeight);
-
-    const colors = {
-        bg: COLORS.BG,
-        cube: COLORS.CUBE
-    };
-
-    ctx.beginPath();
-    ctx.fillStyle = colors.bg;
-    ctx.fillRect(0, 0, screenWidth, screenHeight);
-    ctx.closePath();
-
-    let i;
-    for(i = 0; i < cubes3d.length; i++){
-        draw3D(cubes3d[i], colors.cube);
-    }
-}
-
-function draw3D(o3d, color) {
-    const originX = screenWidth / 2;
-    const originY = screenHeight / 2;
-    const renderVertices = o3d.computeRenders(); 
-    
-    let i, sv, ev, sx, sy, ex, ey;
-    for(i = 0; i < o3d.m3d.edges.length; i++) {
-        sv = renderVertices[o3d.m3d.edges[i][0]];
-        ev = renderVertices[o3d.m3d.edges[i][1]];
-
-        sx = sv.x + originX;
-        sy = sv.y + originY;
-        ex = ev.x + originX;
-        ey = ev.y + originY;
-
-        ctx.moveTo(sx, sy);
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(ex, ey);
-        ctx.strokeStyle = color;
-        ctx.stroke();
-        ctx.closePath();
-    }
-}
-
-requestAnimationFrame(animate);
